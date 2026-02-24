@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MatchResult {
+  WIN
+  LOSS
+}
+
+enum TeamSide {
+  TEAM_1
+  TEAM_2
+}
+
+model Player {
+  id          String   @id @default(cuid())
+  riotId      String
+  tagline     String
+  puuid       String   @unique
+  region      String?
+  currentRank String?
+  rankPoints  Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  matchEntries MatchPlayer[]
+  duoStats     DuoStat[]
+
+  @@unique([riotId, tagline])
+  @@index([riotId])
+  @@index([updatedAt])
+}
+
+model Match {
+  id              String      @id @default(cuid())
+  riotMatchId     String      @unique
+  playedAt        DateTime
+  durationSeconds Int
+  /// Result stored for the primary tracked player snapshot (WIN / LOSS)
+  result          MatchResult
+  patchVersion    String?
+  winningSide     TeamSide?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  playerEntries MatchPlayer[]
+
+  @@index([playedAt])
+  @@index([result])
+}
+
+model MatchPlayer {
+  id                 String   @id @default(cuid())
+  matchId            String
+  playerId           String
+  teamSide           TeamSide?
+  char1              String
+  char2              String
+  anchorChar         String
+  isAnchorClutchWin  Boolean?
+  assistEfficiency   Float?
+  comboExecution     Float?
+  firstHitRoundsWon  Int?
+  firstHitRoundsSeen Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  match   Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  player  Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, playerId])
+  @@index([playerId, anchorChar])
+  @@index([playerId, char1, char2])
+  @@index([matchId])
+}
+
+model DuoStat {
+  id                  String   @id @default(cuid())
+  playerId            String
+  characterA          String
+  characterB          String
+  wins                Int      @default(0)
+  losses              Int      @default(0)
+  totalMatches        Int      @default(0)
+  anchorWins          Int      @default(0)
+  anchorLosses        Int      @default(0)
+  assistEfficiencyAvg Float?
+  firstHitRate        Float?
+  lastMatchAt         DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  /// Store duo in canonical order (e.g. alphabetic) to avoid duplicate pairs.
+  @@unique([playerId, characterA, characterB])
+  @@index([playerId, totalMatches])
+  @@index([playerId, wins])
+  @@index([playerId, updatedAt])
+}
