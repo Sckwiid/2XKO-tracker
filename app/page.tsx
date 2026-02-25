@@ -1,9 +1,19 @@
 "use client";
 
 import type { FormEvent, ReactNode } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Database, LoaderCircle, Search, Shield, Swords, UserRound } from "lucide-react";
+import {
+  AlertTriangle,
+  Crown,
+  Flame,
+  Lock,
+  Search,
+  Shield,
+  Swords,
+  UserRound,
+  Zap,
+} from "lucide-react";
 import type { RiotAccountLookupPayload, RiotAccountLookupResponse } from "../lib/types/riot";
 
 const fadeUp = {
@@ -11,11 +21,21 @@ const fadeUp = {
   animate: { opacity: 1, y: 0 },
 };
 
+type X2koAvailability = {
+  canReadRanked: boolean;
+  canReadMatches: boolean;
+  has403Ranked: boolean;
+  has403Matches: boolean;
+  warnings: string[];
+};
+
 export default function HomePage() {
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<RiotAccountLookupPayload | null>(null);
+
+  const availability = useMemo(() => derive2XkoAvailability(payload), [payload]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -73,18 +93,18 @@ export default function HomePage() {
           className="flex flex-col items-start gap-4"
         >
           <span className="hero-kicker px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em]">
-            Riot 2XKO • Live Account Lookup • Railway Ready
+            2XKO Tracker • Riot ID Live • Duo Analytics Ready
           </span>
 
           <div className="max-w-4xl">
             <h1 className="display-text text-5xl font-extrabold uppercase leading-[0.88] tracking-tight text-white sm:text-6xl lg:text-7xl">
-              Le Tracker <span className="text-neon-pink">2v2</span> passe en
-              <span className="text-neon-cyan"> réel</span> avec Riot.
+              Stats <span className="text-neon-pink">réelles</span> quand Riot les expose,
+              <span className="text-neon-cyan"> instantané</span> quand tu scans.
             </h1>
             <p className="mt-4 max-w-2xl text-sm text-zinc-300 sm:text-base">
-              Lookup Riot ID officiel (PUUID) branché côté serveur via `RIOT_API_KEY`, puis
-              tentative `2XKO-RANKED-V1` + `2XKO-MATCH-V1` selon ta spec pour calculer la
-              synergie duo, l’ancre et l’agressivité.
+              Le site affiche maintenant uniquement des données réelles. Avec ta clé actuelle,
+              le lookup Riot ID est disponible et les stats 2XKO s’affichent automatiquement si
+              les endpoints match/ranked sont autorisés.
             </p>
           </div>
         </motion.div>
@@ -106,7 +126,7 @@ export default function HomePage() {
               <input
                 id="riot-id"
                 type="text"
-                placeholder="Faker#EUW"
+                placeholder="SCKWIID#1910"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 className="h-14 w-full bg-black/30 pl-11 pr-4 text-base text-white outline-none ring-1 ring-white/10 transition focus:ring-cyan-300/40"
@@ -123,14 +143,16 @@ export default function HomePage() {
                   "polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%)",
               }}
             >
-              {isLoading ? <LoaderCircle className="h-5 w-5 animate-spin" /> : null}
+              {isLoading ? <Zap className="h-5 w-5 animate-pulse" /> : null}
               {isLoading ? "Scan..." : "Scan"}
             </button>
           </div>
+
           <p className="mt-3 text-xs text-zinc-400">
-            Format attendu: `Pseudo#TAG` (ex: `Faker#EUW`) • API Riot officielle
-            (`account-v1`) + tentative `2XKO match/ranked v1`.
+            Format `Pseudo#TAG` • le backend interroge `account-v1`, puis tente `2XKO-RANKED-V1`
+            et `2XKO-MATCH-V1`.
           </p>
+
           {error ? (
             <div className="mt-3 flex items-start gap-2 border border-pink-300/20 bg-pink-300/5 px-3 py-2 text-sm text-pink-100">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-neon-pink" />
@@ -148,7 +170,7 @@ export default function HomePage() {
             <div className="panel-cut grid gap-5 p-5 shadow-panel sm:grid-cols-[1.2fr_0.8fr]">
               <div>
                 <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-zinc-400">
-                  Compte Riot (Live)
+                  Profil Joueur (Réel)
                   <span className="h-px flex-1 bg-white/10" />
                 </div>
 
@@ -165,24 +187,17 @@ export default function HomePage() {
 
                     <div className="mt-4 grid gap-3">
                       <IdentityRow label="PUUID" value={payload.account.puuid} tone="cyan" mono />
-                      {payload.ranked ? (
-                        <IdentityRow
-                          label="Ranked"
-                          value={`${payload.ranked.tier} ${payload.ranked.rank} • ${payload.ranked.leaguePoints} LP • ${payload.ranked.wins}W/${payload.ranked.losses}L`}
-                          tone="lime"
-                        />
-                      ) : null}
                       <IdentityRow
                         label="DB Sync"
                         value={
                           payload.persistedPlayer
-                            ? `Player upsert OK (${payload.persistedPlayer.id.slice(0, 8)}...)`
-                            : "Lookup OK • DB sync non disponible"
+                            ? `Player enregistré (${payload.persistedPlayer.id.slice(0, 8)}...)`
+                            : "Lookup OK • Écriture DB indisponible"
                         }
                         tone="lime"
                       />
                       <IdentityRow
-                        label="Fetched"
+                        label="Dernier scan"
                         value={formatDateTime(payload.account.fetchedAt)}
                         tone="pink"
                       />
@@ -191,400 +206,441 @@ export default function HomePage() {
                 ) : (
                   <EmptyPanel
                     icon={<UserRound className="h-5 w-5 text-neon-cyan" />}
-                    title="Aucun compte chargé"
-                    description="Lance un scan Riot ID pour récupérer un PUUID réel et enregistrer le joueur en base."
+                    title="Aucun joueur chargé"
+                    description="Recherche un Riot ID pour charger le profil et tenter les stats 2XKO réelles."
                   />
                 )}
               </div>
 
               <div className="panel-cut panel-cut-lime grid-faint p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-zinc-400">
-                  Pipeline Live
-                </p>
-                <div className="mt-4 space-y-3">
-                  <StatusChip
-                    label="Client -> API Route"
-                    value="OK"
-                    tone="cyan"
-                    active={Boolean(payload)}
-                  />
-                  <StatusChip
-                    label="API Riot account-v1"
-                    value={payload ? "LIVE" : "READY"}
-                    tone="pink"
-                    active={Boolean(payload)}
-                  />
-                  <StatusChip
-                    label="Prisma Player Upsert"
-                    value={payload?.persistedPlayer ? "SYNCED" : "PENDING"}
-                    tone="lime"
-                    active={Boolean(payload?.persistedPlayer)}
-                  />
-                  <StatusChip
-                    label="2XKO ranked-v1"
-                    value={payload?.ranked ? "LIVE" : payload ? "MISS" : "READY"}
-                    tone="cyan"
-                    active={Boolean(payload?.ranked)}
-                  />
-                  <StatusChip
-                    label="2XKO match-v1"
-                    value={payload?.analytics ? "LIVE" : payload ? "MISS" : "READY"}
-                    tone="pink"
-                    active={Boolean(payload?.analytics)}
-                  />
-                </div>
-                <p className="mt-4 text-xs text-zinc-400">
-                  Les anciennes stats de démo ont été retirées. Les cartes ci-dessous affichent
-                  uniquement les données réellement récupérées (ou des états d’échec explicites).
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-6 md:grid-cols-2">
-              <div className="panel-cut p-5 shadow-panel">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="display-text text-2xl font-bold uppercase text-white">
-                    Statut API 2XKO
-                  </h3>
-                  <span className="text-xs uppercase tracking-[0.16em] text-zinc-400">
-                    Officiel
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  <InfoBlock
-                    icon={<Shield className="h-4 w-4 text-neon-cyan" />}
-                    title="Riot ID Lookup"
-                    body="Disponible et branché via Riot account-v1 (RIOT_API_KEY côté serveur)."
-                  />
-                  <InfoBlock
-                    icon={<Swords className="h-4 w-4 text-neon-pink" />}
-                    title="2XKO Match-V1"
-                    body={
-                      payload?.analytics
-                        ? `Actif sur un échantillon de ${payload.analytics.sampleWindowMatches} matchs (${payload.analytics.queue ?? "unknown"}).`
-                        : "Aucun échantillon match récupéré pour le moment (route, accès, clé ou joueur sans matchs)."
-                    }
-                  />
-                  <InfoBlock
-                    icon={<Shield className="h-4 w-4 text-neon-lime" />}
-                    title="2XKO Ranked-V1"
-                    body={
-                      payload?.ranked
-                        ? `${payload.ranked.tier} ${payload.ranked.rank} • ${payload.ranked.leaguePoints} LP`
-                        : "Aucune stat ranked reçue pour ce joueur / cet accès."
-                    }
-                  />
-                </div>
+                <p className="text-xs uppercase tracking-[0.18em] text-zinc-400">Résumé 2XKO</p>
 
                 {payload ? (
-                  <>
-                    <p className="mt-4 text-xs text-zinc-400">{payload.limitations.note}</p>
-                    {payload.warnings.length > 0 ? (
-                      <div className="mt-3 space-y-2">
-                        {payload.warnings.slice(0, 4).map((warning, index) => (
-                          <div
-                            key={`${warning}-${index}`}
-                            className="border border-pink-300/15 bg-pink-300/5 px-3 py-2 text-xs text-pink-100"
-                          >
-                            {warning}
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-              </div>
-
-              <div className="panel-cut panel-cut-lime p-5 shadow-panel">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="display-text text-2xl font-bold uppercase text-white">
-                    2XKO Assets (Live)
-                  </h3>
-                  <span className="text-xs uppercase tracking-[0.16em] text-zinc-400">
-                    Champions
-                  </span>
-                </div>
-
-                {payload?.championCatalog ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-3">
-                      <MetricCard
-                        label="Catalog Count"
-                        value={
-                          payload.championCatalog.count !== null
-                            ? String(payload.championCatalog.count)
-                            : "N/A"
-                        }
-                        tone="lime"
-                      />
-                      <MetricCard
-                        label="Fetched"
-                        value={timeOnly(payload.championCatalog.fetchedAt)}
-                        tone="cyan"
-                      />
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {payload.championCatalog.sampleNames.length > 0 ? (
-                        payload.championCatalog.sampleNames.map((name) => (
-                          <span
-                            key={name}
-                            className="border border-white/10 bg-black/20 px-2 py-1 text-xs text-zinc-200"
-                            style={{
-                              clipPath:
-                                "polygon(0 6px, 6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%)",
-                            }}
-                          >
-                            {name}
-                          </span>
-                        ))
-                      ) : (
-                        <p className="text-xs text-zinc-400">
-                          Catalogue récupéré, mais format non reconnu pour extraire des noms.
-                        </p>
-                      )}
-                    </div>
-
-                    {payload.analytics ? (
-                      <div className="mt-4 grid gap-3">
-                        <MetricCard
-                          label="Sample WR"
-                          value={`${safeWinrate(payload.analytics.wins, payload.analytics.losses)}%`}
-                          tone="pink"
-                        />
-                        <MetricCard
-                          label="Top Duo"
-                          value={
-                            payload.analytics.duoStats[0]
-                              ? `${payload.analytics.duoStats[0].duo[0]}+${payload.analytics.duoStats[0].duo[1]}`
-                              : "N/A"
-                          }
-                          tone="lime"
-                        />
-                        <MetricCard
-                          label="Aggro Badge"
-                          value={payload.analytics.aggressivity.badge}
-                          tone={
-                            payload.analytics.aggressivity.badge === "Predateur" ? "pink" : "cyan"
-                          }
-                        />
-                      </div>
-                    ) : null}
-                  </>
+                  <div className="mt-4 space-y-3">
+                    <StatusLine
+                      label="Ranked"
+                      value={payload.ranked ? "Données reçues" : availability.has403Ranked ? "Accès Riot refusé (403)" : "Non disponible"}
+                      tone={payload.ranked ? "lime" : "pink"}
+                    />
+                    <StatusLine
+                      label="Match History"
+                      value={payload.analytics ? `${payload.analytics.sampleWindowMatches} matchs sample` : availability.has403Matches ? "Accès Riot refusé (403)" : "Non disponible"}
+                      tone={payload.analytics ? "lime" : "pink"}
+                    />
+                    <StatusLine
+                      label="Duo / Anchor / Aggro"
+                      value={payload.analytics ? "Calculés" : "En attente d’accès match-v1"}
+                      tone={payload.analytics ? "cyan" : "pink"}
+                    />
+                  </div>
                 ) : (
                   <EmptyPanel
-                    icon={<Database className="h-5 w-5 text-neon-lime" />}
-                    title="Catalogue non chargé"
-                    description="Le backend tente aussi de lire le catalogue champions 2XKO officiel après le lookup Riot."
+                    icon={<Shield className="h-5 w-5 text-neon-lime" />}
+                    title="Prêt au scan"
+                    description="Le dashboard affiche automatiquement les stats réelles disponibles pour la clé Riot configurée."
                   />
                 )}
               </div>
             </div>
-          </div>
 
-          <div className="panel-cut p-5 shadow-panel">
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="display-text text-2xl font-bold uppercase text-white">
-                Roadmap Data Réelle
-              </h3>
-              <span className="text-xs uppercase tracking-[0.16em] text-zinc-400">
-                Next
-              </span>
-            </div>
+            {payload ? (
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="panel-cut p-5 shadow-panel">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="display-text text-2xl font-bold uppercase text-white">
+                      Ranked 2XKO
+                    </h3>
+                    <span className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                      Live
+                    </span>
+                  </div>
 
-            <p className="text-sm text-zinc-400">
-              Le socle “réel” est actif: lookup Riot + persistence en base. Avec ta spec
-              `2XKO-MATCH-V1 / RANKED-V1`, le tracker tente déjà de calculer des métriques
-              synergie/anchor sur un échantillon de matchs.
-            </p>
-
-            {payload?.analytics ? (
-              <div className="mt-4 space-y-3">
-                <div className="border border-white/5 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
-                    Sample Analytics ({payload.analytics.sampleWindowMatches} matchs)
-                  </p>
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    <MetricCard
-                      label="Wins / Losses"
-                      value={`${payload.analytics.wins}/${payload.analytics.losses}`}
-                      tone="cyan"
+                  {payload.ranked ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <MetricCard
+                        label="Tier"
+                        value={`${payload.ranked.tier} ${payload.ranked.rank}`}
+                        tone="cyan"
+                      />
+                      <MetricCard
+                        label="League Points"
+                        value={String(payload.ranked.leaguePoints)}
+                        tone="lime"
+                      />
+                      <MetricCard
+                        label="Wins"
+                        value={String(payload.ranked.wins)}
+                        tone="pink"
+                      />
+                      <MetricCard
+                        label="Losses"
+                        value={String(payload.ranked.losses)}
+                        tone="cyan"
+                      />
+                    </div>
+                  ) : (
+                    <LockedStatsCard
+                      title="Stats ranked indisponibles"
+                      lines={buildLockedLines(availability, "ranked")}
                     />
-                    <MetricCard
-                      label="Aggro Ratio"
-                      value={
-                        payload.analytics.aggressivity.ratioFirstHitsPerRound !== null
-                          ? String(payload.analytics.aggressivity.ratioFirstHitsPerRound)
-                          : "N/A"
-                      }
-                      tone="pink"
+                  )}
+                </div>
+
+                <div className="panel-cut panel-cut-lime p-5 shadow-panel">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="display-text text-2xl font-bold uppercase text-white">
+                      Snapshot Playstyle
+                    </h3>
+                    <span className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                      Réel
+                    </span>
+                  </div>
+
+                  {payload.analytics ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <MetricCard
+                        label="Aggro Badge"
+                        value={payload.analytics.aggressivity.badge}
+                        tone={payload.analytics.aggressivity.badge === "Predateur" ? "pink" : "lime"}
+                      />
+                      <MetricCard
+                        label="First Hit Ratio"
+                        value={
+                          payload.analytics.aggressivity.ratioFirstHitsPerRound !== null
+                            ? String(payload.analytics.aggressivity.ratioFirstHitsPerRound)
+                            : "N/A"
+                        }
+                        tone="cyan"
+                      />
+                      <MetricCard
+                        label="Total First Hits"
+                        value={String(payload.analytics.aggressivity.totalFirstHits)}
+                        tone="pink"
+                      />
+                      <MetricCard
+                        label="Sample WR"
+                        value={`${safeWinrate(payload.analytics.wins, payload.analytics.losses)}%`}
+                        tone="lime"
+                      />
+                    </div>
+                  ) : (
+                    <LockedStatsCard
+                      title="Playstyle indisponible"
+                      lines={buildLockedLines(availability, "match")}
                     />
-                  </div>
-                </div>
-
-                <div className="border border-white/5 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
-                    Duo Synergie (sample)
-                  </p>
-                  <div className="mt-3 space-y-2">
-                    {payload.analytics.duoStats.length > 0 ? (
-                      payload.analytics.duoStats.slice(0, 5).map((duo) => (
-                        <div
-                          key={duo.duo.join("-")}
-                          className="grid grid-cols-[1fr_auto] items-center gap-3 border border-white/5 px-3 py-2"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm text-white">
-                              {duo.duo[0]} + {duo.duo[1]}
-                            </p>
-                            <p className="text-xs text-zinc-400">
-                              {duo.wins}W / {duo.losses}L ({duo.totalMatches} matchs)
-                            </p>
-                          </div>
-                          <span className="display-text text-xl font-bold text-neon-pink">
-                            {duo.winrate}%
-                          </span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-zinc-400">
-                        Aucun duo exploitable trouvé dans l’échantillon.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="border border-white/5 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
-                    Anchor Efficiency (sample)
-                  </p>
-                  <div className="mt-3 grid gap-2">
-                    {payload.analytics.anchor.byAnchorChar.length > 0 ? (
-                      payload.analytics.anchor.byAnchorChar.slice(0, 4).map((anchor) => (
-                        <div
-                          key={anchor.charId}
-                          className="grid grid-cols-[1fr_auto] items-center gap-3 border border-white/5 px-3 py-2"
-                        >
-                          <div>
-                            <p className="text-sm text-white">{anchor.charId}</p>
-                            <p className="text-xs text-zinc-400">
-                              {anchor.wins}W / {anchor.losses}L ({anchor.totalMatches})
-                            </p>
-                          </div>
-                          <span className="display-text text-xl font-bold text-neon-lime">
-                            {anchor.winrate}%
-                          </span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-zinc-400">
-                        Pas de données d’ancre exploitables dans l’échantillon.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="border border-white/5 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
-                    Recent Matches (sample)
-                  </p>
-                  <div className="mt-3 space-y-2">
-                    {payload.analytics.recentMatches.length > 0 ? (
-                      payload.analytics.recentMatches.slice(0, 6).map((match) => (
-                        <div
-                          key={match.matchId}
-                          className="grid grid-cols-[auto_1fr_auto] items-center gap-3 border border-white/5 px-3 py-2"
-                        >
-                          <span
-                            className={`display-text px-2 py-1 text-base font-bold ${
-                              match.result === "WIN"
-                                ? "bg-lime-300/10 text-neon-lime"
-                                : "bg-pink-300/10 text-neon-pink"
-                            }`}
-                            style={{
-                              clipPath:
-                                "polygon(0 6px, 6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%)",
-                            }}
-                          >
-                            {match.result === "WIN" ? "W" : "L"}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm text-white">
-                              {match.duo[0]} + {match.duo[1]}
-                            </p>
-                            <p className="truncate text-xs text-zinc-400">
-                              {match.gameMode ?? "N/A"} • Anchor {match.anchorChar ?? "N/A"} • FH{" "}
-                              {match.firstHits ?? "N/A"} • Combo {match.comboPeak ?? "N/A"}
-                            </p>
-                          </div>
-                          <span className="text-xs text-zinc-400">
-                            {formatDuration(match.durationSeconds)}
-                          </span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-zinc-400">Aucun match récent disponible.</p>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
             ) : null}
 
-            <div className="mt-4 space-y-3">
-              <RoadmapRow
-                step="1"
-                title="Lookup Riot ID -> PUUID"
-                description="API officielle Riot account-v1 • déjà connecté"
-                status={payload ? "done" : "ready"}
-              />
-              <RoadmapRow
-                step="2"
-                title="Collecte Matchs 2XKO"
-                description={
-                  payload?.analytics
-                    ? "Tentative active via ta spec match-v1 (sample calculé)"
-                    : "En attente d’un endpoint joignable / autorisé"
-                }
-                status={payload?.analytics ? "done" : "blocked"}
-              />
-              <RoadmapRow
-                step="3"
-                title="Agrégation DuoStat / Anchor"
-                description={
-                  payload?.analytics
-                    ? "Calcul sample en mémoire OK • persistance DB à brancher ensuite"
-                    : "Calcul Prisma + caches DB + dashboards"
-                }
-                status={payload?.analytics ? "done" : "ready"}
-              />
-              <RoadmapRow
-                step="4"
-                title="Radar Playstyle (Recharts)"
-                description={
-                  payload?.analytics
-                    ? "Réactivation possible avec les métriques match réelles"
-                    : "Réactivation quand la donnée réelle existe"
-                }
-                status={payload?.analytics ? "done" : "ready"}
-              />
+            {payload?.analytics ? (
+              <>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="panel-cut p-5 shadow-panel">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h3 className="display-text text-2xl font-bold uppercase text-white">
+                        Winrate par Duo
+                      </h3>
+                      <span className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                        Sample {payload.analytics.sampleWindowMatches}
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {payload.analytics.duoStats.length > 0 ? (
+                        payload.analytics.duoStats.map((entry) => (
+                          <div
+                            key={entry.duo.join("-")}
+                            className="grid grid-cols-[1fr_auto] gap-3 border border-white/5 bg-black/20 px-3 py-3"
+                            style={{
+                              clipPath:
+                                "polygon(0 8px, 8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%)",
+                            }}
+                          >
+                            <div>
+                              <p className="display-text text-xl font-bold uppercase text-white">
+                                {entry.duo[0]} + {entry.duo[1]}
+                              </p>
+                              <p className="text-xs text-zinc-400">
+                                {entry.wins}W / {entry.losses}L • {entry.totalMatches} matchs
+                              </p>
+                            </div>
+                            <div className="flex min-w-24 flex-col items-end justify-center">
+                              <p className="display-text text-2xl font-extrabold text-neon-pink">
+                                {entry.winrate}%
+                              </p>
+                              <div className="mt-1 h-1.5 w-24 overflow-hidden bg-white/5">
+                                <div
+                                  className="h-full bg-gradient-to-r from-neon-pink to-neon-cyan"
+                                  style={{ width: `${entry.winrate}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-zinc-400">Aucun duo exploitable dans cet échantillon.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="panel-cut panel-cut-lime p-5 shadow-panel">
+                      <div className="mb-4 flex items-center justify-between">
+                        <h3 className="display-text text-2xl font-bold uppercase text-white">
+                          Anchor Efficiency
+                        </h3>
+                        <span className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                          Sample
+                        </span>
+                      </div>
+
+                      <div className="grid gap-2">
+                        {payload.analytics.anchor.byAnchorChar.length > 0 ? (
+                          payload.analytics.anchor.byAnchorChar.slice(0, 5).map((anchor) => (
+                            <div
+                              key={anchor.charId}
+                              className="grid grid-cols-[1fr_auto] items-center gap-3 border border-white/5 bg-black/20 px-3 py-2"
+                            >
+                              <div>
+                                <p className="text-sm text-white">{anchor.charId}</p>
+                                <p className="text-xs text-zinc-400">
+                                  {anchor.wins}W / {anchor.losses}L ({anchor.totalMatches})
+                                </p>
+                              </div>
+                              <span className="display-text text-xl font-bold text-neon-lime">
+                                {anchor.winrate}%
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-zinc-400">Pas de données d’ancre exploitables.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="panel-cut p-5 shadow-panel">
+                      <div className="mb-4 flex items-center justify-between">
+                        <h3 className="display-text text-2xl font-bold uppercase text-white">
+                          Recent Matches
+                        </h3>
+                        <span className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                          Réel
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {payload.analytics.recentMatches.length > 0 ? (
+                          payload.analytics.recentMatches.map((match) => (
+                            <div
+                              key={match.matchId}
+                              className="grid grid-cols-[auto_1fr_auto] items-center gap-3 border border-white/5 bg-black/20 px-3 py-2"
+                            >
+                              <span
+                                className={`display-text inline-flex min-w-9 justify-center px-2 py-1 text-lg font-bold ${
+                                  match.result === "WIN"
+                                    ? "bg-lime-300/15 text-neon-lime"
+                                    : "bg-pink-300/10 text-neon-pink"
+                                }`}
+                                style={{
+                                  clipPath:
+                                    "polygon(0 6px, 6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%)",
+                                }}
+                              >
+                                {match.result === "WIN" ? "W" : "L"}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm text-white">
+                                  {match.duo[0]} + {match.duo[1]}
+                                </p>
+                                <p className="truncate text-xs text-zinc-400">
+                                  {match.gameMode ?? "N/A"} • Anchor {match.anchorChar ?? "N/A"} • FH {match.firstHits ?? "N/A"} • Combo {match.comboPeak ?? "N/A"}
+                                </p>
+                              </div>
+                              <span className="text-xs text-zinc-400">{formatDuration(match.durationSeconds)}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-zinc-400">Aucun match récent disponible.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
+
+          <div className="space-y-6">
+            <div className="panel-cut p-5 shadow-panel">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="display-text text-2xl font-bold uppercase text-white">
+                  État d’accès 2XKO
+                </h3>
+                <span className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                  Riot
+                </span>
+              </div>
+
+              {payload ? (
+                <div className="space-y-4">
+                  {(availability.has403Ranked || availability.has403Matches) && (
+                    <div className="border border-pink-300/20 bg-pink-300/5 p-4">
+                      <div className="flex items-center gap-2">
+                        <Lock className="h-4 w-4 text-neon-pink" />
+                        <p className="display-text text-lg font-bold uppercase text-white">
+                          Clé Riot insuffisante pour 2XKO
+                        </p>
+                      </div>
+                      <p className="mt-2 text-sm text-zinc-200">
+                        Ta clé fonctionne pour `account-v1`, mais Riot renvoie `403` sur les routes
+                        2XKO `match-v1` et/ou `ranked-v1`. Du coup, on ne peut pas récupérer les
+                        vrais matchs, le rang 2XKO, ni calculer Duo/Anchor/Aggro.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="grid gap-3">
+                    <AccessRow
+                      icon={<Crown className="h-4 w-4 text-neon-lime" />}
+                      title="2XKO Ranked"
+                      status={payload.ranked ? "Disponible" : availability.has403Ranked ? "403 Riot (clé non autorisée)" : "Indisponible"}
+                    />
+                    <AccessRow
+                      icon={<Swords className="h-4 w-4 text-neon-pink" />}
+                      title="2XKO Match History"
+                      status={payload.analytics ? "Disponible" : availability.has403Matches ? "403 Riot (clé non autorisée)" : "Indisponible"}
+                    />
+                    <AccessRow
+                      icon={<Flame className="h-4 w-4 text-neon-cyan" />}
+                      title="Duo / Anchor / Agressivité"
+                      status={payload.analytics ? "Calculés à partir des matchs" : "Bloqués tant que match-v1 n’est pas accessible"}
+                    />
+                  </div>
+
+                  {availability.warnings.length > 0 ? (
+                    <div className="border border-white/5 bg-black/20 p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                        Détails techniques (résumé)
+                      </p>
+                      <ul className="mt-2 space-y-1 text-xs text-zinc-300">
+                        {availability.warnings.slice(0, 4).map((warning, index) => (
+                          <li key={`${warning}-${index}`}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <EmptyPanel
+                  icon={<Shield className="h-5 w-5 text-neon-cyan" />}
+                  title="En attente d’un scan"
+                  description="Le panneau affichera automatiquement ce que la clé Riot permet réellement de récupérer pour le joueur recherché."
+                />
+              )}
             </div>
 
-            <div className="mt-5 border border-white/5 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
-                Ce qui a changé
-              </p>
-              <ul className="mt-2 space-y-2 text-sm text-zinc-200">
-                <li>Fausses données de profil retirées.</li>
-                <li>Recherche Riot ID branchée à l’API officielle côté serveur.</li>
-                <li>PUUID persisté en PostgreSQL via Prisma (upsert `Player`).</li>
-              </ul>
-            </div>
+            {payload?.championCatalog ? (
+              <div className="panel-cut panel-cut-lime p-5 shadow-panel">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="display-text text-2xl font-bold uppercase text-white">
+                    2XKO Assets
+                  </h3>
+                  <span className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                    Live Catalog
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <MetricCard
+                    label="Champions"
+                    value={payload.championCatalog.count !== null ? String(payload.championCatalog.count) : "N/A"}
+                    tone="lime"
+                  />
+                  <MetricCard
+                    label="Fetch"
+                    value={timeOnly(payload.championCatalog.fetchedAt)}
+                    tone="cyan"
+                  />
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {payload.championCatalog.sampleNames.length > 0 ? (
+                    payload.championCatalog.sampleNames.map((name) => (
+                      <span
+                        key={name}
+                        className="border border-white/10 bg-black/20 px-2 py-1 text-xs text-zinc-200"
+                        style={{
+                          clipPath:
+                            "polygon(0 6px, 6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%)",
+                        }}
+                      >
+                        {name}
+                      </span>
+                    ))
+                  ) : (
+                    <p className="text-xs text-zinc-400">Catalogue récupéré, noms non normalisés.</p>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
         </motion.section>
       </section>
     </main>
   );
+}
+
+function derive2XkoAvailability(payload: RiotAccountLookupPayload | null): X2koAvailability {
+  if (!payload) {
+    return {
+      canReadRanked: false,
+      canReadMatches: false,
+      has403Ranked: false,
+      has403Matches: false,
+      warnings: [],
+    };
+  }
+
+  const warnings = payload.warnings ?? [];
+  const lowerWarnings = warnings.map((warning) => warning.toLowerCase());
+  const has403Ranked = lowerWarnings.some(
+    (warning) => warning.includes("ranked-v1") && warning.includes("(403)"),
+  );
+  const has403Matches = lowerWarnings.some(
+    (warning) =>
+      (warning.includes("match-v1 ids") || warning.includes("match-v1 detail")) &&
+      warning.includes("(403)"),
+  );
+
+  return {
+    canReadRanked: Boolean(payload.ranked),
+    canReadMatches: Boolean(payload.analytics),
+    has403Ranked,
+    has403Matches,
+    warnings,
+  };
+}
+
+function buildLockedLines(availability: X2koAvailability, scope: "ranked" | "match") {
+  if (scope === "ranked") {
+    if (availability.has403Ranked) {
+      return [
+        "Riot renvoie 403 sur 2XKO-RANKED-V1 avec la clé actuelle.",
+        "Le site ne peut pas afficher le grade 2XKO réel tant que l’accès n’est pas autorisé.",
+      ];
+    }
+    return ["Aucune donnée ranked reçue pour ce joueur (ou route indisponible)."];
+  }
+
+  if (availability.has403Matches) {
+    return [
+      "Riot renvoie 403 sur 2XKO-MATCH-V1 avec la clé actuelle.",
+      "Duo / Anchor / Agressivité nécessitent l’historique de matchs réel.",
+    ];
+  }
+
+  return ["Aucun match 2XKO récupéré pour ce joueur (ou route indisponible)."];
 }
 
 function EmptyPanel({
@@ -620,35 +676,31 @@ function IdentityRow({
 }) {
   const toneClass =
     tone === "pink"
-      ? "border-pink-300/20 bg-pink-300/5 text-neon-pink"
+      ? "border-pink-300/20 bg-pink-300/5"
       : tone === "cyan"
-        ? "border-cyan-300/20 bg-cyan-300/5 text-neon-cyan"
-        : "border-lime-300/20 bg-lime-300/5 text-neon-lime";
+        ? "border-cyan-300/20 bg-cyan-300/5"
+        : "border-lime-300/20 bg-lime-300/5";
 
   return (
     <div className={`border px-3 py-3 ${toneClass}`}>
       <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-400">{label}</p>
-      <p
-        className={`mt-1 text-sm font-medium text-white ${mono ? "font-mono break-all" : ""}`}
-      >
+      <p className={`mt-1 text-sm font-medium text-white ${mono ? "font-mono break-all" : ""}`}>
         {value}
       </p>
     </div>
   );
 }
 
-function StatusChip({
+function StatusLine({
   label,
   value,
   tone,
-  active,
 }: {
   label: string;
   value: string;
   tone: "pink" | "cyan" | "lime";
-  active: boolean;
 }) {
-  const accent =
+  const color =
     tone === "pink"
       ? "text-neon-pink"
       : tone === "cyan"
@@ -656,27 +708,45 @@ function StatusChip({
         : "text-neon-lime";
 
   return (
-    <div className="flex items-center justify-between border border-white/5 bg-black/20 px-3 py-2">
+    <div className="flex items-center justify-between border border-white/5 bg-black/20 px-3 py-2 gap-3">
       <span className="text-xs uppercase tracking-[0.15em] text-zinc-300">{label}</span>
-      <span
-        className={`display-text text-lg font-bold uppercase ${accent} ${
-          active ? "" : "opacity-70"
-        }`}
-      >
+      <span className={`text-right text-xs font-semibold uppercase tracking-[0.14em] ${color}`}>
         {value}
       </span>
     </div>
   );
 }
 
-function InfoBlock({
+function LockedStatsCard({
+  title,
+  lines,
+}: {
+  title: string;
+  lines: string[];
+}) {
+  return (
+    <div className="border border-pink-300/20 bg-pink-300/5 p-4">
+      <div className="flex items-center gap-2">
+        <Lock className="h-4 w-4 text-neon-pink" />
+        <p className="display-text text-lg font-bold uppercase text-white">{title}</p>
+      </div>
+      <div className="mt-2 space-y-1 text-sm text-zinc-200">
+        {lines.map((line, index) => (
+          <p key={`${line}-${index}`}>{line}</p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AccessRow({
   icon,
   title,
-  body,
+  status,
 }: {
   icon: ReactNode;
   title: string;
-  body: string;
+  status: string;
 }) {
   return (
     <div className="border border-white/5 bg-black/20 p-3">
@@ -684,7 +754,7 @@ function InfoBlock({
         {icon}
         <p className="display-text text-lg font-bold uppercase text-white">{title}</p>
       </div>
-      <p className="mt-1 text-sm text-zinc-400">{body}</p>
+      <p className="mt-1 text-sm text-zinc-400">{status}</p>
     </div>
   );
 }
@@ -709,47 +779,6 @@ function MetricCard({
     <div className="border border-white/5 bg-black/20 px-3 py-3">
       <p className="text-xs uppercase tracking-[0.15em] text-zinc-400">{label}</p>
       <p className={`display-text mt-1 text-2xl font-extrabold ${color}`}>{value}</p>
-    </div>
-  );
-}
-
-function RoadmapRow({
-  step,
-  title,
-  description,
-  status,
-}: {
-  step: string;
-  title: string;
-  description: string;
-  status: "done" | "ready" | "blocked";
-}) {
-  const statusLabel = status === "done" ? "Done" : status === "blocked" ? "Blocked" : "Ready";
-  const statusClass =
-    status === "done"
-      ? "text-neon-lime"
-      : status === "blocked"
-        ? "text-neon-pink"
-        : "text-neon-cyan";
-
-  return (
-    <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 border border-white/5 bg-black/20 px-3 py-3">
-      <span
-        className="display-text inline-flex min-w-8 justify-center bg-white/5 px-2 py-1 text-lg font-bold text-white"
-        style={{
-          clipPath:
-            "polygon(0 6px, 6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%)",
-        }}
-      >
-        {step}
-      </span>
-      <div className="min-w-0">
-        <p className="truncate text-sm text-white">{title}</p>
-        <p className="text-xs text-zinc-400">{description}</p>
-      </div>
-      <span className={`display-text text-lg font-bold uppercase ${statusClass}`}>
-        {statusLabel}
-      </span>
     </div>
   );
 }
