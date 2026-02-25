@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "../../../../lib/prisma";
-import { RiotApiError, fetch2XkoChampionCatalogSummary, fetchRiotAccountByRiotId } from "../../../../lib/riot/server";
-import type { RiotAccountLookupErrorPayload, RiotAccountLookupPayload } from "../../../../lib/types/riot";
+import { buildLiveRiotProfileByRiotId } from "../../../../lib/riot/service";
+import { RiotApiError } from "../../../../lib/riot/server";
+import type {
+  RiotAccountLookupErrorPayload,
+  RiotAccountLookupPayload,
+  TwoXkoQueue,
+} from "../../../../lib/types/riot";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   const riotId = request.nextUrl.searchParams.get("riotId")?.trim();
+  const queueParam = request.nextUrl.searchParams
+    .get("queue")
+    ?.trim()
+    ?.toLowerCase();
+  const countParam = request.nextUrl.searchParams.get("count")?.trim();
 
   if (!riotId) {
     return NextResponse.json<RiotAccountLookupErrorPayload>(
@@ -22,25 +32,27 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [account, championCatalog] = await Promise.all([
-      fetchRiotAccountByRiotId(riotId),
-      fetch2XkoChampionCatalogSummary(),
-    ]);
+    const queue = isTwoXkoQueue(queueParam) ? queueParam : "ranked";
+    const count = clampCount(countParam);
+    const live = await buildLiveRiotProfileByRiotId({ riotId, queue, count });
 
     let persistedPlayer: RiotAccountLookupPayload["persistedPlayer"] = null;
 
     try {
       const player = await prisma.player.upsert({
-        where: { puuid: account.puuid },
+        where: { puuid: live.account.puuid },
         update: {
-          riotId: account.gameName,
-          tagline: account.tagLine,
+          riotId: live.account.gameName,
+          tagline: live.account.tagLine,
+          currentRank: live.ranked ? `${live.ranked.tier} ${live.ranked.rank}` : undefined,
+          rankPoints: live.ranked?.leaguePoints ?? undefined,
         },
         create: {
-          riotId: account.gameName,
-          tagline: account.tagLine,
-          puuid: account.puuid,
-          currentRank: null,
+          riotId: live.account.gameName,
+          tagline: live.account.tagLine,
+          puuid: live.account.puuid,
+          currentRank: live.ranked ? `${live.ranked.tier} ${live.ranked.rank}` : null,
+          rankPoints: live.ranked?.leaguePoints ?? null,
         },
       });
 
@@ -56,15 +68,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json<RiotAccountLookupPayload>({
       ok: true,
-      account,
+      account: live.account,
       persistedPlayer,
-      championCatalog,
-      limitations: {
-        hasPublic2XkoMatchApiInCatalog: false,
-        requiresRsoPlayerOptIn: true,
-        note:
-          "Le portail Riot 2XKO documente le produit et mentionne RSO/opt-in, mais aucun endpoint match 2XKO public n’est visible dans le catalogue API public au moment de cette intégration.",
-      },
+      ranked: live.ranked,
+      analytics: live.analytics,
+      championCatalog: live.championCatalog,
+      limitations: live.limitations,
+      warnings: live.warnings,
     });
   } catch (error) {
     if (error instanceof RiotApiError) {
@@ -92,4 +102,16 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+function isTwoXkoQueue(value: string | undefined): value is TwoXkoQueue {
+  return value === "ranked" || value === "casual" || value === "tournament";
+}
+
+function clampCount(value: string | undefined) {
+  const parsed = value ? Number.parseInt(value, 10) : Number.NaN;
+  if (!Number.isFinite(parsed)) {
+    return 20;
+  }
+  return Math.min(Math.max(parsed, 1), 100);
 }

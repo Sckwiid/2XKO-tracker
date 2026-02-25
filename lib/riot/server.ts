@@ -1,6 +1,13 @@
 import "server-only";
 
-import type { RiotAccountCluster, RiotAccountDto } from "../types/riot";
+import type {
+  RiotAccountCluster,
+  RiotAccountDto,
+  TwoXkoMatchDto,
+  TwoXkoMatchIdsResponse,
+  TwoXkoQueue,
+  TwoXkoRankedStatsDto,
+} from "../types/riot";
 
 const RIOT_ACCOUNT_CLUSTERS: RiotAccountCluster[] = ["europe", "americas", "asia"];
 const TWO_XKO_CHAMPIONS_URL = "https://map.rgpub.io/public/2xko/latest/champions.json";
@@ -160,6 +167,64 @@ export async function fetchRiotAccountByRiotId(riotId: string) {
   );
 }
 
+export async function fetch2XkoMatchIdsByPuuid(params: {
+  puuid: string;
+  cluster: RiotAccountCluster;
+  start?: number;
+  count?: number;
+  queue?: TwoXkoQueue;
+}) {
+  const { puuid, cluster, start = 0, count = 20, queue } = params;
+  const safeCount = Math.min(Math.max(count, 1), 100);
+
+  const search = new URLSearchParams({
+    start: String(Math.max(start, 0)),
+    count: String(safeCount),
+  });
+
+  if (queue) {
+    search.set("queue", queue);
+  }
+
+  return requestRiotJson<TwoXkoMatchIdsResponse>({
+    cluster,
+    path: `/match/v1/matches/by-puuid/${encodeURIComponent(puuid)}/ids?${search.toString()}`,
+    contextLabel: "2XKO match id list",
+    notFoundCode: "ACCOUNT_NOT_FOUND",
+    notFoundMessage: "Aucun match 2XKO trouvé pour ce joueur.",
+  });
+}
+
+export async function fetch2XkoMatchById(params: {
+  matchId: string;
+  cluster: RiotAccountCluster;
+}) {
+  const { matchId, cluster } = params;
+
+  return requestRiotJson<TwoXkoMatchDto>({
+    cluster,
+    path: `/match/v1/matches/${encodeURIComponent(matchId)}`,
+    contextLabel: "2XKO match detail",
+    notFoundCode: "ACCOUNT_NOT_FOUND",
+    notFoundMessage: `Match 2XKO introuvable (${matchId}).`,
+  });
+}
+
+export async function fetch2XkoRankedStatsByPuuid(params: {
+  puuid: string;
+  cluster: RiotAccountCluster;
+}) {
+  const { puuid, cluster } = params;
+
+  return requestRiotJson<TwoXkoRankedStatsDto>({
+    cluster,
+    path: `/ranked/v1/stats/by-puuid/${encodeURIComponent(puuid)}`,
+    contextLabel: "2XKO ranked stats",
+    notFoundCode: "ACCOUNT_NOT_FOUND",
+    notFoundMessage: "Stats ranked 2XKO introuvables pour ce joueur.",
+  });
+}
+
 export async function fetch2XkoChampionCatalogSummary() {
   try {
     const response = await fetch(TWO_XKO_CHAMPIONS_URL, {
@@ -183,6 +248,82 @@ export async function fetch2XkoChampionCatalogSummary() {
   } catch {
     return null;
   }
+}
+
+async function requestRiotJson<T>(params: {
+  cluster: RiotAccountCluster;
+  path: string;
+  contextLabel: string;
+  notFoundCode: RiotApiError["code"];
+  notFoundMessage: string;
+}) {
+  const { cluster, path, contextLabel, notFoundCode, notFoundMessage } = params;
+  const apiKey = process.env.RIOT_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new RiotApiError(
+      "MISSING_RIOT_API_KEY",
+      500,
+      "Variable `RIOT_API_KEY` absente sur le serveur.",
+    );
+  }
+
+  const baseUrl =
+    process.env.RIOT_2XKO_API_BASE_URL?.trim() ||
+    `https://${cluster}.api.riotgames.com`;
+
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "GET",
+    headers: {
+      "X-Riot-Token": apiKey,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (response.ok) {
+    return (await response.json()) as T;
+  }
+
+  const details = await safeErrorBody(response);
+
+  if (response.status === 404) {
+    throw new RiotApiError(notFoundCode, 404, notFoundMessage, details);
+  }
+
+  if (response.status === 401) {
+    throw new RiotApiError(
+      "RIOT_UNAUTHORIZED",
+      401,
+      `RIOT_API_KEY invalide ou expirée (${contextLabel}).`,
+      details,
+    );
+  }
+
+  if (response.status === 403) {
+    throw new RiotApiError(
+      "RIOT_FORBIDDEN",
+      403,
+      `Accès refusé par Riot pour ${contextLabel} (route non autorisée / clé insuffisante).`,
+      details,
+    );
+  }
+
+  if (response.status === 429) {
+    throw new RiotApiError(
+      "RIOT_RATE_LIMIT",
+      429,
+      `Rate limit Riot atteint sur ${contextLabel}.`,
+      details,
+    );
+  }
+
+  throw new RiotApiError(
+    "RIOT_UPSTREAM_ERROR",
+    response.status,
+    `Erreur Riot sur ${contextLabel}.`,
+    details,
+  );
 }
 
 async function safeErrorBody(response: Response) {

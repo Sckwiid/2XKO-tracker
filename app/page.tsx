@@ -31,10 +31,13 @@ export default function HomePage() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/riot/account?riotId=${encodeURIComponent(riotId)}`, {
-        method: "GET",
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/riot/account?riotId=${encodeURIComponent(riotId)}&queue=ranked&count=20`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
 
       const json = (await response.json()) as RiotAccountLookupResponse;
 
@@ -79,9 +82,9 @@ export default function HomePage() {
               <span className="text-neon-cyan"> réel</span> avec Riot.
             </h1>
             <p className="mt-4 max-w-2xl text-sm text-zinc-300 sm:text-base">
-              Lookup Riot ID officiel (PUUID) branché côté serveur via `RIOT_API_KEY`. Les
-              stats match 2XKO restent bloquées tant que les endpoints publics ne sont pas
-              exposés dans le catalogue API Riot.
+              Lookup Riot ID officiel (PUUID) branché côté serveur via `RIOT_API_KEY`, puis
+              tentative `2XKO-RANKED-V1` + `2XKO-MATCH-V1` selon ta spec pour calculer la
+              synergie duo, l’ancre et l’agressivité.
             </p>
           </div>
         </motion.div>
@@ -126,7 +129,7 @@ export default function HomePage() {
           </div>
           <p className="mt-3 text-xs text-zinc-400">
             Format attendu: `Pseudo#TAG` (ex: `Faker#EUW`) • API Riot officielle
-            (`account-v1`) côté serveur.
+            (`account-v1`) + tentative `2XKO match/ranked v1`.
           </p>
           {error ? (
             <div className="mt-3 flex items-start gap-2 border border-pink-300/20 bg-pink-300/5 px-3 py-2 text-sm text-pink-100">
@@ -162,6 +165,13 @@ export default function HomePage() {
 
                     <div className="mt-4 grid gap-3">
                       <IdentityRow label="PUUID" value={payload.account.puuid} tone="cyan" mono />
+                      {payload.ranked ? (
+                        <IdentityRow
+                          label="Ranked"
+                          value={`${payload.ranked.tier} ${payload.ranked.rank} • ${payload.ranked.leaguePoints} LP • ${payload.ranked.wins}W/${payload.ranked.losses}L`}
+                          tone="lime"
+                        />
+                      ) : null}
                       <IdentityRow
                         label="DB Sync"
                         value={
@@ -210,10 +220,22 @@ export default function HomePage() {
                     tone="lime"
                     active={Boolean(payload?.persistedPlayer)}
                   />
+                  <StatusChip
+                    label="2XKO ranked-v1"
+                    value={payload?.ranked ? "LIVE" : payload ? "MISS" : "READY"}
+                    tone="cyan"
+                    active={Boolean(payload?.ranked)}
+                  />
+                  <StatusChip
+                    label="2XKO match-v1"
+                    value={payload?.analytics ? "LIVE" : payload ? "MISS" : "READY"}
+                    tone="pink"
+                    active={Boolean(payload?.analytics)}
+                  />
                 </div>
                 <p className="mt-4 text-xs text-zinc-400">
-                  Les anciennes stats de démo ont été retirées. Affichage uniquement des
-                  données réellement récupérées.
+                  Les anciennes stats de démo ont été retirées. Les cartes ci-dessous affichent
+                  uniquement les données réellement récupérées (ou des états d’échec explicites).
                 </p>
               </div>
             </div>
@@ -237,18 +259,40 @@ export default function HomePage() {
                   />
                   <InfoBlock
                     icon={<Swords className="h-4 w-4 text-neon-pink" />}
-                    title="Match History 2XKO"
-                    body="Non affiché ici pour l’instant: pas d’endpoint 2XKO match public exploitable visible dans le catalogue API Riot public."
+                    title="2XKO Match-V1"
+                    body={
+                      payload?.analytics
+                        ? `Actif sur un échantillon de ${payload.analytics.sampleWindowMatches} matchs (${payload.analytics.queue ?? "unknown"}).`
+                        : "Aucun échantillon match récupéré pour le moment (route, accès, clé ou joueur sans matchs)."
+                    }
                   />
                   <InfoBlock
                     icon={<Shield className="h-4 w-4 text-neon-lime" />}
-                    title="Accès avancé 2XKO"
-                    body="La doc 2XKO mentionne RSO + opt-in joueur pour l’historique de matchs (et clés de prod / approbation)."
+                    title="2XKO Ranked-V1"
+                    body={
+                      payload?.ranked
+                        ? `${payload.ranked.tier} ${payload.ranked.rank} • ${payload.ranked.leaguePoints} LP`
+                        : "Aucune stat ranked reçue pour ce joueur / cet accès."
+                    }
                   />
                 </div>
 
                 {payload ? (
-                  <p className="mt-4 text-xs text-zinc-400">{payload.limitations.note}</p>
+                  <>
+                    <p className="mt-4 text-xs text-zinc-400">{payload.limitations.note}</p>
+                    {payload.warnings.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {payload.warnings.slice(0, 4).map((warning, index) => (
+                          <div
+                            key={`${warning}-${index}`}
+                            className="border border-pink-300/15 bg-pink-300/5 px-3 py-2 text-xs text-pink-100"
+                          >
+                            {warning}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
                 ) : null}
               </div>
 
@@ -301,6 +345,32 @@ export default function HomePage() {
                         </p>
                       )}
                     </div>
+
+                    {payload.analytics ? (
+                      <div className="mt-4 grid gap-3">
+                        <MetricCard
+                          label="Sample WR"
+                          value={`${safeWinrate(payload.analytics.wins, payload.analytics.losses)}%`}
+                          tone="pink"
+                        />
+                        <MetricCard
+                          label="Top Duo"
+                          value={
+                            payload.analytics.duoStats[0]
+                              ? `${payload.analytics.duoStats[0].duo[0]}+${payload.analytics.duoStats[0].duo[1]}`
+                              : "N/A"
+                          }
+                          tone="lime"
+                        />
+                        <MetricCard
+                          label="Aggro Badge"
+                          value={payload.analytics.aggressivity.badge}
+                          tone={
+                            payload.analytics.aggressivity.badge === "Predateur" ? "pink" : "cyan"
+                          }
+                        />
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <EmptyPanel
@@ -324,10 +394,142 @@ export default function HomePage() {
             </div>
 
             <p className="text-sm text-zinc-400">
-              Le socle “réel” est actif: lookup Riot + persistence en base. Dès qu’on a la doc
-              endpoint match 2XKO (ou accès approuvé), on branche les stats duo/anchor/radar sur
-              les tables Prisma déjà préparées.
+              Le socle “réel” est actif: lookup Riot + persistence en base. Avec ta spec
+              `2XKO-MATCH-V1 / RANKED-V1`, le tracker tente déjà de calculer des métriques
+              synergie/anchor sur un échantillon de matchs.
             </p>
+
+            {payload?.analytics ? (
+              <div className="mt-4 space-y-3">
+                <div className="border border-white/5 bg-black/20 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                    Sample Analytics ({payload.analytics.sampleWindowMatches} matchs)
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <MetricCard
+                      label="Wins / Losses"
+                      value={`${payload.analytics.wins}/${payload.analytics.losses}`}
+                      tone="cyan"
+                    />
+                    <MetricCard
+                      label="Aggro Ratio"
+                      value={
+                        payload.analytics.aggressivity.ratioFirstHitsPerRound !== null
+                          ? String(payload.analytics.aggressivity.ratioFirstHitsPerRound)
+                          : "N/A"
+                      }
+                      tone="pink"
+                    />
+                  </div>
+                </div>
+
+                <div className="border border-white/5 bg-black/20 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                    Duo Synergie (sample)
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {payload.analytics.duoStats.length > 0 ? (
+                      payload.analytics.duoStats.slice(0, 5).map((duo) => (
+                        <div
+                          key={duo.duo.join("-")}
+                          className="grid grid-cols-[1fr_auto] items-center gap-3 border border-white/5 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-white">
+                              {duo.duo[0]} + {duo.duo[1]}
+                            </p>
+                            <p className="text-xs text-zinc-400">
+                              {duo.wins}W / {duo.losses}L ({duo.totalMatches} matchs)
+                            </p>
+                          </div>
+                          <span className="display-text text-xl font-bold text-neon-pink">
+                            {duo.winrate}%
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-zinc-400">
+                        Aucun duo exploitable trouvé dans l’échantillon.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="border border-white/5 bg-black/20 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                    Anchor Efficiency (sample)
+                  </p>
+                  <div className="mt-3 grid gap-2">
+                    {payload.analytics.anchor.byAnchorChar.length > 0 ? (
+                      payload.analytics.anchor.byAnchorChar.slice(0, 4).map((anchor) => (
+                        <div
+                          key={anchor.charId}
+                          className="grid grid-cols-[1fr_auto] items-center gap-3 border border-white/5 px-3 py-2"
+                        >
+                          <div>
+                            <p className="text-sm text-white">{anchor.charId}</p>
+                            <p className="text-xs text-zinc-400">
+                              {anchor.wins}W / {anchor.losses}L ({anchor.totalMatches})
+                            </p>
+                          </div>
+                          <span className="display-text text-xl font-bold text-neon-lime">
+                            {anchor.winrate}%
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-zinc-400">
+                        Pas de données d’ancre exploitables dans l’échantillon.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="border border-white/5 bg-black/20 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
+                    Recent Matches (sample)
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {payload.analytics.recentMatches.length > 0 ? (
+                      payload.analytics.recentMatches.slice(0, 6).map((match) => (
+                        <div
+                          key={match.matchId}
+                          className="grid grid-cols-[auto_1fr_auto] items-center gap-3 border border-white/5 px-3 py-2"
+                        >
+                          <span
+                            className={`display-text px-2 py-1 text-base font-bold ${
+                              match.result === "WIN"
+                                ? "bg-lime-300/10 text-neon-lime"
+                                : "bg-pink-300/10 text-neon-pink"
+                            }`}
+                            style={{
+                              clipPath:
+                                "polygon(0 6px, 6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%)",
+                            }}
+                          >
+                            {match.result === "WIN" ? "W" : "L"}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-white">
+                              {match.duo[0]} + {match.duo[1]}
+                            </p>
+                            <p className="truncate text-xs text-zinc-400">
+                              {match.gameMode ?? "N/A"} • Anchor {match.anchorChar ?? "N/A"} • FH{" "}
+                              {match.firstHits ?? "N/A"} • Combo {match.comboPeak ?? "N/A"}
+                            </p>
+                          </div>
+                          <span className="text-xs text-zinc-400">
+                            {formatDuration(match.durationSeconds)}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-zinc-400">Aucun match récent disponible.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-4 space-y-3">
               <RoadmapRow
@@ -339,20 +541,32 @@ export default function HomePage() {
               <RoadmapRow
                 step="2"
                 title="Collecte Matchs 2XKO"
-                description="En attente d’endpoints publics / accès produit"
-                status="blocked"
+                description={
+                  payload?.analytics
+                    ? "Tentative active via ta spec match-v1 (sample calculé)"
+                    : "En attente d’un endpoint joignable / autorisé"
+                }
+                status={payload?.analytics ? "done" : "blocked"}
               />
               <RoadmapRow
                 step="3"
                 title="Agrégation DuoStat / Anchor"
-                description="Calcul Prisma + caches DB + dashboards"
-                status="ready"
+                description={
+                  payload?.analytics
+                    ? "Calcul sample en mémoire OK • persistance DB à brancher ensuite"
+                    : "Calcul Prisma + caches DB + dashboards"
+                }
+                status={payload?.analytics ? "done" : "ready"}
               />
               <RoadmapRow
                 step="4"
                 title="Radar Playstyle (Recharts)"
-                description="Réactivation quand la donnée réelle existe"
-                status="ready"
+                description={
+                  payload?.analytics
+                    ? "Réactivation possible avec les métriques match réelles"
+                    : "Réactivation quand la donnée réelle existe"
+                }
+                status={payload?.analytics ? "done" : "ready"}
               />
             </div>
 
@@ -561,4 +775,21 @@ function timeOnly(value: string) {
     minute: "2-digit",
     second: "2-digit",
   }).format(date);
+}
+
+function safeWinrate(wins: number, losses: number) {
+  const total = wins + losses;
+  if (total <= 0) {
+    return 0;
+  }
+  return Math.round((wins / total) * 100);
+}
+
+function formatDuration(seconds: number | null) {
+  if (seconds === null || !Number.isFinite(seconds)) {
+    return "N/A";
+  }
+  const minutes = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
